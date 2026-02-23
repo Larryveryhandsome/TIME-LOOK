@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, orientation=landscape">
+  <title>時。刻 | 沉浸時鐘</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&display=swap');
+    
+    body {
+      font-family: 'Noto Sans TC', sans-serif;
+      background-color: #000000; /* OLED 絕對純黑 */
+      color: white;
+      -webkit-tap-highlight-color: transparent;
+      margin: 0;
+      overflow: hidden; /* 防止任何滾動 */
+      cursor: none; /* 隱藏游標，更沉浸 */
+    }
+
+    /* 開場動畫 Keyframes */
+    @keyframes grow { from { height: 0; opacity: 0; } to { height: 5rem; opacity: 1; } }
+    @keyframes floatUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+    .animate-grow { animation: grow 1s ease-out forwards; }
+    .animate-float-1 { animation: floatUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.2s forwards; opacity: 0; }
+    .animate-float-2 { animation: floatUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.4s forwards; opacity: 0; }
+    .animate-float-3 { animation: floatUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.8s forwards; opacity: 0; }
+    .animate-fade-in { animation: fadeIn 1.5s ease-out forwards; opacity: 0; }
+    
+    /* 隱藏 Splash Screen 的過場 */
+    .fade-out { opacity: 0 !important; transition: opacity 0.5s ease-out; pointer-events: none; }
+
+    /* 防烙印漸變動畫 */
+    .pixel-shift { transition: transform 2s ease-in-out; }
+  </style>
+</head>
+<!-- 加入點擊事件以觸發全螢幕與防休眠 -->
+<body class="w-screen h-screen flex justify-center items-center selection:bg-neutral-800" onclick="enableImmersiveMode()">
+
+  <!-- 防烙印位移容器 -->
+  <div id="burn-in-wrapper" class="pixel-shift w-full h-full flex flex-col items-center justify-center opacity-0 transition-opacity duration-1000">
+    
+    <!-- 頂部裝飾 -->
+    <header class="absolute top-8 flex justify-center items-center z-10 opacity-0 animate-fade-in" style="animation-delay: 3s;">
+      <h1 class="text-lg font-light tracking-[0.4em] text-neutral-600">時<span class="mx-1">。</span>刻</h1>
+    </header>
+
+    <!-- 主時鐘區塊 (針對橫屏放大尺寸) -->
+    <main class="flex flex-col items-center justify-center w-full h-full mt-4">
+      
+      <!-- 類比時鐘 (Analog Clock) -->
+      <div class="relative w-[45vh] h-[45vh] max-w-[400px] max-h-[400px] rounded-full border-[1.5px] border-neutral-800 bg-neutral-900/20 shadow-[0_0_60px_rgba(255,255,255,0.03)] flex items-center justify-center mb-8 opacity-0 animate-float-1" style="animation-delay: 3.2s;">
+        
+        <!-- 刻度面盤 (JS 自動生成) -->
+        <div id="clock-ticks" class="absolute inset-0"></div>
+
+        <!-- 時針 -->
+        <div id="hand-hour" class="absolute inset-0 z-10">
+          <div class="absolute top-1/2 left-1/2 w-2 h-[22%] bg-white rounded-full shadow-lg" style="transform: translate(-50%, -100%);"></div>
+        </div>
+        
+        <!-- 分針 -->
+        <div id="hand-min" class="absolute inset-0 z-20">
+          <div class="absolute top-1/2 left-1/2 w-1.5 h-[35%] bg-neutral-300 rounded-full shadow-lg" style="transform: translate(-50%, -100%);"></div>
+        </div>
+        
+        <!-- 秒針 (平滑掃動) -->
+        <div id="hand-sec" class="absolute inset-0 z-30">
+          <!-- 前端長針 -->
+          <div class="absolute top-1/2 left-1/2 w-[3px] h-[42%] bg-amber-400 rounded-full shadow-[0_0_15px_rgba(251,191,36,0.6)]" style="transform: translate(-50%, -100%);"></div>
+          <!-- 尾端短針平衡 -->
+          <div class="absolute top-1/2 left-1/2 w-[3px] h-[10%] bg-amber-400 rounded-full" style="transform: translate(-50%, 0%);"></div>
+        </div>
+
+        <!-- 中心圓點 -->
+        <div class="absolute z-40 w-4 h-4 bg-white rounded-full shadow-md border-[3px] border-neutral-900"></div>
+      </div>
+
+      <!-- 數位時間與日期 (Digital Clock) -->
+      <div class="text-center opacity-0 animate-float-1" style="animation-delay: 3.4s;">
+        <div id="digital-time" class="text-[7vh] md:text-6xl font-extralight tracking-[0.15em] font-mono text-white mb-2 leading-none" style="font-variant-numeric: tabular-nums;">
+          00:00:00
+        </div>
+        <div id="date-display" class="text-neutral-500 tracking-[0.3em] text-[2vh] md:text-sm uppercase font-medium mt-3">
+          載入中...
+        </div>
+      </div>
+
+    </main>
+
+    <!-- 點擊提示 (幾秒後自動隱藏) -->
+    <div id="interaction-hint" class="absolute bottom-6 text-neutral-700 text-xs tracking-widest opacity-0 animate-fade-in" style="animation-delay: 4.5s;">
+      輕觸螢幕進入全螢幕防休眠模式
+    </div>
+
+  </div>
+
+  <!-- 開場動畫 (Splash Screen) -->
+  <div id="splash-screen" class="fixed inset-0 bg-black flex flex-col items-center justify-center z-50 transition-opacity duration-500">
+    <div class="w-px bg-neutral-700 animate-grow mb-6 rounded-full"></div>
+    <div class="flex gap-4 mb-8 overflow-hidden">
+      <span class="text-6xl font-light tracking-[0.2em] animate-float-1">時</span>
+      <span class="text-6xl font-light tracking-[0.2em] animate-float-2">刻</span>
+    </div>
+    <span class="text-neutral-500 text-sm tracking-[0.4em] uppercase animate-float-3">
+      專注當下，感受流動
+    </span>
+  </div>
+
+  <script>
+    // --- 螢幕常亮與全螢幕機制 ---
+    let wakeLock = null;
+    let hasInteracted = false;
+
+    async function enableImmersiveMode() {
+      if (hasInteracted) return; // 避免重複觸發
+      
+      const hint = document.getElementById('interaction-hint');
+      if(hint) hint.style.opacity = '0';
+
+      // 1. 請求全螢幕
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch((err) => {
+          console.log(`Error attempting to enable fullscreen: ${err.message}`);
+        });
+      }
+
+      // 2. 請求螢幕常亮 (Wake Lock API)
+      if ('wakeLock' in navigator) {
+        try {
+          wakeLock = await navigator.wakeLock.request('screen');
+          console.log('螢幕常亮已啟用');
+          
+          // 處理切換視窗後回來重新獲取 Wake Lock
+          document.addEventListener('visibilitychange', async () => {
+            if (wakeLock !== null && document.visibilityState === 'visible') {
+              wakeLock = await navigator.wakeLock.request('screen');
+            }
+          });
+        } catch (err) {
+          console.log(`Wake Lock error: ${err.name}, ${err.message}`);
+        }
+      }
+      hasInteracted = true;
+    }
+
+    // --- OLED 防烙印機制 (Pixel Shifting) ---
+    function applyPixelShift() {
+      const wrapper = document.getElementById('burn-in-wrapper');
+      // 在 -20px 到 20px 之間緩慢隨機位移
+      const maxShift = 20; 
+      const shiftX = Math.floor(Math.random() * (maxShift * 2 + 1)) - maxShift;
+      const shiftY = Math.floor(Math.random() * (maxShift * 2 + 1)) - maxShift;
+      
+      wrapper.style.transform = `translate(${shiftX}px, ${shiftY}px)`;
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      // 每 1 分鐘執行一次防烙印位移
+      setInterval(applyPixelShift, 60000);
+
+      // --- 處理開場動畫 ---
+      setTimeout(() => {
+        const splash = document.getElementById('splash-screen');
+        const appContainer = document.getElementById('burn-in-wrapper');
+        
+        splash.classList.add('fade-out');
+        appContainer.classList.remove('opacity-0');
+        
+        setTimeout(() => splash.remove(), 500);
+      }, 3000);
+
+      // --- 繪製時鐘刻度 ---
+      const clockTicks = document.getElementById('clock-ticks');
+      for (let i = 0; i < 60; i++) {
+        const tickWrapper = document.createElement('div');
+        tickWrapper.className = 'absolute inset-0';
+        tickWrapper.style.transform = `rotate(${i * 6}deg)`;
+        
+        const tickMark = document.createElement('div');
+        tickMark.className = 'absolute top-3 left-1/2 -translate-x-1/2 rounded-full';
+        
+        if (i % 5 === 0) {
+          // 每個整點 (5分鐘) 較粗且明亮
+          tickMark.classList.add('w-1', 'h-4', 'bg-neutral-400');
+        } else {
+          // 一般秒數刻度極度暗淡，保護 OLED
+          tickMark.classList.add('w-[1.5px]', 'h-2', 'bg-neutral-800');
+        }
+        
+        tickWrapper.appendChild(tickMark);
+        clockTicks.appendChild(tickWrapper);
+      }
+
+      // --- 時鐘運作邏輯 (120Hz 平滑渲染) ---
+      const handSec = document.getElementById('hand-sec');
+      const handMin = document.getElementById('hand-min');
+      const handHour = document.getElementById('hand-hour');
+      const digitalTime = document.getElementById('digital-time');
+      const dateDisplay = document.getElementById('date-display');
+
+      const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+
+      function updateClock() {
+        const now = new Date();
+        
+        const ms = now.getMilliseconds();
+        const s = now.getSeconds();
+        const m = now.getMinutes();
+        const h = now.getHours();
+
+        // 結合毫秒計算，讓秒針在 120Hz 螢幕上極度流暢掃動
+        const secDeg = (s + ms / 1000) * 6;
+        const minDeg = (m + s / 60) * 6;
+        const hourDeg = ((h % 12) + m / 60) * 30;
+
+        handSec.style.transform = `rotate(${secDeg}deg)`;
+        handMin.style.transform = `rotate(${minDeg}deg)`;
+        handHour.style.transform = `rotate(${hourDeg}deg)`;
+
+        // 數位時鐘 (補零)
+        const hStr = String(h).padStart(2, '0');
+        const mStr = String(m).padStart(2, '0');
+        const sStr = String(s).padStart(2, '0');
+        digitalTime.textContent = `${hStr}:${mStr}:${sStr}`;
+
+        // 日期
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        const weekday = weekdays[now.getDay()];
+        dateDisplay.textContent = `${year}年${month}月${day}日 ${weekday}`;
+
+        // 遞迴呼叫，自動對齊螢幕刷新率 (Pixel 6 Pro 會以 120 FPS 執行)
+        requestAnimationFrame(updateClock);
+      }
+
+      requestAnimationFrame(updateClock);
+    });
+  </script>
+</body>
+</html>
